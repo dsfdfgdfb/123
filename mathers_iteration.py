@@ -101,7 +101,7 @@ def write_to_db(df, table_name, db_queue):
     # Put the task into the shared queue
     db_queue.put(task)
     db_queue.put(None)
-    print(f"Mathers_iteration:Sentinel is here Neo")
+    print("Mathers_iteration:Sentinel is here Neo")
     
        
     
@@ -118,7 +118,7 @@ async def calculate_rsi_swing_indicator(df1):
     DZsell = 0.1
     Period = periodval
     Lb = 20
-    
+
     RSILine = ta.rsi(df1['F_close'], Period)
     df1['RSI_Highest'] = RSILine.rolling(Lb).max()
     df1['RSI_Lowest'] = RSILine.rolling(Lb).min()
@@ -127,8 +127,12 @@ async def calculate_rsi_swing_indicator(df1):
     jc = (ta.ema((jh - jl) * 0.5, Period) + ta.ema(jl, Period))
     Hiline = jh - jc * DZbuy
     Loline = jl + jc * DZsell
-    R = (4 * RSILine + 3 * RSILine.shift(1) + 2 * RSILine.shift(2) + RSILine.shift(3)) / rsiLength
-    return R
+    return (
+        4 * RSILine
+        + 3 * RSILine.shift(1)
+        + 2 * RSILine.shift(2)
+        + RSILine.shift(3)
+    ) / rsiLength
 
 async def main_processing_loop(table_name, rsiOverbought, rsiOversold):
     try:        
@@ -206,8 +210,10 @@ def compute_heikin_ashi(df):
 def exponential_smoothing(series, alpha=0.3):
     """Apply Exponential Smoothing."""
     result = [series[0]]
-    for n in range(1, len(series)):
-        result.append(alpha * series[n] + (1 - alpha) * result[n-1])
+    result.extend(
+        alpha * series[n] + (1 - alpha) * result[n - 1]
+        for n in range(1, len(series))
+    )
     return result
 
 
@@ -261,13 +267,17 @@ def process_pair(df, current_idx, next_pivot_idx):
 #there's likely around 3 pivots that are incorrect before entering in here. fuck them
 def adjust_buy_targets(df):
     buy_rows = df[(df['actualClass'] == 2) & (df['buyTarget'] > 0)].index.tolist()
-    
+
     for idx in buy_rows:
         current_close = df.loc[idx, 'F_close']
-        # Find the next row that would result in a correct buyTarget
-        correct_idx = next((i for i in range(idx + 1, len(df)) if df.loc[i, 'F_close'] < current_close), None)
-        
-        if correct_idx:
+        if correct_idx := next(
+            (
+                i
+                for i in range(idx + 1, len(df))
+                if df.loc[i, 'F_close'] < current_close
+            ),
+            None,
+        ):
             # Adjust the actualClass for the incorrect and correct indices
             df.at[correct_idx, 'actualClass'] = 2
             df.at[idx, 'actualClass'] = 0
@@ -284,14 +294,14 @@ def adjust_buy_targets(df):
 
 async def process_and_target(df, table_name, db_queue):
     try:
-        idx = 0  
+        idx = 0
         state_indices = []
         current_accumulation = []
         current_state = None
         last_state_change_timestamp = None
-        
+
         df['rsiState'] = 0
-        
+
         while idx < len(df):
             row = df.iloc[idx]
 
@@ -303,26 +313,32 @@ async def process_and_target(df, table_name, db_queue):
                 idx += 1
                 continue
 
-            if current_state == 1:
-                if row['isOversold'] == 1:
-                    current_accumulation.append(idx)
-                elif row['isOverbought'] == 1:
-                    if current_accumulation:
-                        extremum_idx = df.loc[current_accumulation, 'F_close'].idxmin()
-                        state_indices.append(extremum_idx)
-                        df.at[extremum_idx, 'rsiState'] = 1
-                    current_accumulation = []
-                    current_state = 2      
-            elif current_state == 2:
-                if row['isOverbought'] == 1:
-                    current_accumulation.append(idx)
-                elif row['isOversold'] == 1:
-                    if current_accumulation:
-                        extremum_idx = df.loc[current_accumulation, 'F_close'].idxmax()
-                        state_indices.append(extremum_idx)
-                        df.at[extremum_idx, 'rsiState'] = 2
-                    current_accumulation = []
-                    current_state = 1
+            if (
+                current_state == 1
+                and row['isOversold'] == 1
+                or current_state != 1
+                and current_state == 2
+                and row['isOverbought'] == 1
+            ):
+                current_accumulation.append(idx)
+            elif current_state == 1 and row['isOverbought'] == 1:
+                if current_accumulation:
+                    extremum_idx = df.loc[current_accumulation, 'F_close'].idxmin()
+                    state_indices.append(extremum_idx)
+                    df.at[extremum_idx, 'rsiState'] = 1
+                current_accumulation = []
+                current_state = 2
+            elif (
+                current_state != 1
+                and (current_state != 2 or row['isOversold'] == 1)
+                and current_state == 2
+            ):
+                if current_accumulation:
+                    extremum_idx = df.loc[current_accumulation, 'F_close'].idxmax()
+                    state_indices.append(extremum_idx)
+                    df.at[extremum_idx, 'rsiState'] = 2
+                current_accumulation = []
+                current_state = 1
 
             idx += 1
 
@@ -435,7 +451,7 @@ async def process_and_target(df, table_name, db_queue):
                 df.update(result_df)
             except Exception as e:
                 logging.exception(f"Error in thread: {e}")
-   
+
     #df = adjust_buy_targets(df)
     try:    
         loop = asyncio.get_running_loop()
@@ -456,32 +472,36 @@ async def process_and_target(df, table_name, db_queue):
 async def main_mathers_iteration_async_logic(db_queue):
     setup_logging()
     try:
-        print(f"mathers_iteration, Starting main function, init:mathers_iteration.py")
-       
+        print("mathers_iteration, Starting main function, init:mathers_iteration.py")
+
         tasks = []
         for timeframe, table_name in timeframes.items():
             print(f"mathers_iteration, Processing timeframe: {timeframe}, table_name: {table_name}")
             task = main_processing_loop(table_name, rsiOverbought, rsiOversold)
             tasks.append(task)
 
-        results = await asyncio.gather(*tasks)        
+        results = await asyncio.gather(*tasks)
         df_dict = {}
         successful_processing = True
-        
+
         for table, df_selected in results:
             if table is None and df_selected is None:
-                print(f"mathers_iteration, Skipping processing for table due to not enough data.")
+                print(
+                    "mathers_iteration, Skipping processing for table due to not enough data."
+                )
                 successful_processing = False  # Set the flag to False if there's an error or None value
                 continue
             df_dict[table] = df_selected
-                
-        logging.debug(f"mathers_iteration, Gathered data. Now processing and targeting.")
+
+        logging.debug(
+            "mathers_iteration, Gathered data. Now processing and targeting."
+        )
         tasks = [process_and_target(df_dict.get(table_name), table_name, db_queue) for table_name in timeframes.values() if df_dict.get(table_name) is not None]
-        
-        
+
+
 
         dfs = await asyncio.gather(*tasks)
-        
+
 
 
     except Exception as e:
