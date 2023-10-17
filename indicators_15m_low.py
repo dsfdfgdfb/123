@@ -516,9 +516,10 @@ async def create_indicator_tables(botdb_queue):
             table_name_with_suffix = f"{table_name}"  # Add the timeframe suffix to the table name
             # Generate the indicator columns based on the indicators for the current category
             indicator_columns = ["time INTEGER PRIMARY KEY"]
-            for indicator in indicators_dict[table_name]:
-                indicator_columns.append(f"{indicator} INTEGER")
-            
+            indicator_columns.extend(
+                f"{indicator} INTEGER"
+                for indicator in indicators_dict[table_name]
+            )
             indicator_columns_str = ", ".join(indicator_columns)
 
             # Construct the task and add it to the queue
@@ -528,7 +529,7 @@ async def create_indicator_tables(botdb_queue):
                 "schema": indicator_columns_str
             }
             botdb_queue.put(task)
-        
+
         botdb_queue.put(None)
     except Exception as e:
         logging.error(f"Error queuing table creation tasks: {e}")
@@ -550,7 +551,7 @@ async def get_start_timestamp_for_indicators():
 
     async with aiosqlite.connect(bot_db_filepath) as readdb:
         async with readdb.cursor() as cursor:
-            for table_name in indicators_dict.keys():  # Using table_name directly
+            for table_name in indicators_dict:  # Using table_name directly
                 print(f"Fetching data from: {bot_db_filepath} for table: {table_name}")
 
 
@@ -577,9 +578,7 @@ async def get_start_timestamp_for_indicators():
 
                     # Check if there's data to calculate the adjusted rank
                     if rank is not None:
-                        # Adjust the rank based on twice the maximum window size
-                        length_range = determine_length_range(table_name)
-                        if length_range:
+                        if length_range := determine_length_range(table_name):
                             max_window_size = max(length_range)
                         else:
                             max_window_size = 0
@@ -609,8 +608,7 @@ async def get_start_timestamp_for_indicators():
 
 
 def determine_long_slow_periods(window_size):
-    length_range = determine_length_range(window_size)
-    if length_range:
+    if length_range := determine_length_range(window_size):
         return length_range[0], length_range[-1]  # first and last values in the range
     else:
         return None, None
@@ -622,15 +620,13 @@ warnings.showwarning = custom_warning_handler
 
 def add_standard_indicators(data_df, window_size):
     indicator_data = {}
-    
+
     for indicator in standard_indicators:
         indicator_name, _, _ = indicator.split('_')
         column_name = f"{indicator_name}_{window_size}_u_l"
         indicator_data[indicator_name] = pd.Series(indicator_name.lower() + '_values')[column_name].tolist()
-    
-    standard_df = pd.DataFrame(indicator_data)
-    
-    return standard_df
+
+    return pd.DataFrame(indicator_data)
 
 def add_dynamism_to_series(series, period):
     series = pd.Series(series)
