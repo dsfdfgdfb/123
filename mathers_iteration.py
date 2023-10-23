@@ -30,6 +30,7 @@ timeframes = {
 }
 
 DB_PATH_DATA = './lobotomiser/data/btcdata.db'
+
 def setup_logging():
     # Create a formatter for the log messages
     formatter = logging.Formatter('%(processName)-10s %(levelname)-8s %(message)s')
@@ -106,7 +107,7 @@ def write_to_db(df, table_name, db_queue):
         "table_name": table_name,
         "columns": df.columns.tolist()
     }
-    
+    print(f"mathers iteration completed {table_name} .")
     # Put the task into the shared queue
     db_queue.put(task)
     db_queue.put(None)
@@ -242,42 +243,142 @@ def total_variation_denoising_beta(y, alpha=15):
     
     return result.x
 
-def process_pair(df, current_idx, next_pivot_idx):
-    current_pivot = df.loc[current_idx, 'pivot']
-    next_pivot_high_price = df.loc[next_pivot_idx, 'F_close']
 
-    num_points = next_pivot_idx - current_idx + 1
 
-    idx_range = df.index[df.index.isin(range(current_idx, next_pivot_idx + 1))]
-    pd.set_option('display.float_format', '{:.2f}'.format)
-    if current_pivot == 1:
+def compute_sellTarget(df, idx_range, next_pivot_high_price, table_name):
+    try:
+        print(f"[{table_name}]compute sell target")
         df.loc[idx_range, 'sellTarget'] = (next_pivot_high_price - df.loc[idx_range, 'F_close'])
-        df.loc[idx_range, 'sellTarget_high'] = (next_pivot_high_price - df.loc[idx_range, 'F_high'])
-        df.at[current_idx, 'actualClass'] = 1    
         df.loc[idx_range, 'sellTarget_smoothed'] = exponential_smoothing(df.loc[idx_range, 'sellTarget'].tolist())       
+
+    except Exception as e:
+        logging.error(f"Error in compute_sellTarget for table {table_name}. Error: {e}")
+    return df
+    
+
+def compute_sellTarget_denoised(df, idx_range, next_pivot_high_price, table_name):
+    try:
+        print(f"[{table_name}]compute sell target denoised")
         sell_target_data = df.loc[idx_range, 'sellTarget'].to_numpy()
-        df.loc[idx_range, 'sellTarget_denoised_alpha'] = total_variation_denoising_alpha(sell_target_data)  
+        df.loc[idx_range, 'sellTarget_denoised_alpha'] = total_variation_denoising_alpha(sell_target_data)
         df.loc[idx_range, 'sellTarget_denoised_beta'] = total_variation_denoising_beta(sell_target_data)
-        df.loc[idx_range, 'sellTarget_smoothed_high'] = exponential_smoothing(df.loc[idx_range, 'sellTarget_high'].tolist())       
+    except Exception as e:
+        logging.error(f"Error in compute_sellTarget_denoised for table {table_name}. Error: {e}")
+    return df
+
+
+
+def compute_sellTarget_high(df, idx_range, next_pivot_high_price, table_name):
+    try:
+        print(f"[{table_name}]compute sell target high")
+        df.loc[idx_range, 'sellTarget_high'] = (next_pivot_high_price - df.loc[idx_range, 'F_high'])
+        df.loc[idx_range, 'sellTarget_smoothed_high'] = exponential_smoothing(df.loc[idx_range, 'sellTarget_high'].tolist())  
+    except Exception as e:
+        logging.error(f"Error in compute_sellTarget_high for table {table_name}. Error: {e}")
+    return df
+
+def compute_sellTarget_denoised_high(df, idx_range, next_pivot_high_price, table_name):
+    try:
+        print(f"[{table_name}]compute sell target denoised high")
         sell_target_data = df.loc[idx_range, 'sellTarget_high'].to_numpy()
         df.loc[idx_range, 'sellTarget_denoised_alpha_high'] = total_variation_denoising_alpha(sell_target_data)  
         df.loc[idx_range, 'sellTarget_denoised_beta_high'] = total_variation_denoising_beta(sell_target_data) 
-        
-           
-    elif current_pivot == 2:
+    except Exception as e:
+        logging.error(f"Error in compute_sellTarget_denoised_high for table {table_name}. Error: {e}")
+    return df
+
+def compute_buyTarget(df, idx_range, next_pivot_high_price, table_name):
+    try:
+        print(f"[{table_name}]compute buytarget")
         df.loc[idx_range, 'buyTarget'] = (next_pivot_high_price - df.loc[idx_range, 'F_close'])
-        df.loc[idx_range, 'buyTarget_low'] = (next_pivot_high_price - df.loc[idx_range, 'F_low'])
-        df.at[current_idx, 'actualClass'] = 2        
-        df.loc[idx_range, 'buyTarget_smoothed'] = exponential_smoothing(df.loc[idx_range, 'buyTarget'].tolist())
+        df.loc[idx_range, 'buyTarget_smoothed'] = exponential_smoothing(df.loc[idx_range, 'buyTarget'].tolist())   
+    except Exception as e:
+        logging.error(f"Error in compute_buyTarget for table {table_name}. Error: {e}")
+    return df
+
+def compute_buyTarget_denoised(df, idx_range, next_pivot_high_price, table_name):
+    try:
+        print(f"[{table_name}]compute buy target denoised")
         buy_target_data = df.loc[idx_range, 'buyTarget'].to_numpy()
         df.loc[idx_range, 'buyTarget_denoised_alpha'] = total_variation_denoising_alpha(buy_target_data)
         df.loc[idx_range, 'buyTarget_denoised_beta'] = total_variation_denoising_beta(buy_target_data) 
-        df.loc[idx_range, 'buyTarget_smoothed_low'] = exponential_smoothing(df.loc[idx_range, 'buyTarget_low'].tolist())
+    except Exception as e:
+        logging.error(f"Error in compute_buyTarget_denoised for table {table_name}. Error: {e}")
+    return df
+
+def compute_buyTarget_low(df, idx_range, next_pivot_high_price, table_name):
+    try:
+        print(f"[{table_name}]compute buy target low")
+        df.loc[idx_range, 'buyTarget_low'] = (next_pivot_high_price - df.loc[idx_range, 'F_low'])
+        df.loc[idx_range, 'buyTarget_smoothed_low'] = exponential_smoothing(df.loc[idx_range, 'buyTarget_low'].tolist())   
+    except Exception as e:
+        logging.error(f"Error in compute_buyTarget_low for table {table_name}. Error: {e}")
+    return df
+
+def compute_buyTarget_denoised_low(df, idx_range, next_pivot_high_price, table_name):
+    try:
+        print(f"[{table_name}]compute buy target denoised low")
         buy_target_data = df.loc[idx_range, 'buyTarget_low'].to_numpy()
         df.loc[idx_range, 'buyTarget_denoised_alpha_low'] = total_variation_denoising_alpha(buy_target_data)
-        df.loc[idx_range, 'buyTarget_denoised_beta_low'] = total_variation_denoising_beta(buy_target_data)
-       
-      
+        df.loc[idx_range, 'buyTarget_denoised_beta_low'] = total_variation_denoising_beta(buy_target_data)   
+    except Exception as e:
+        logging.error(f"error in compute_buyTarget_denoised_low for table {table_name}. Error: {e}")
+    return df
+
+
+
+def multi_process_function(args):
+    print("args")
+    print(args)
+    try:
+        df_copy, idx_range, next_pivot_high_price, function_name, table_name = args
+
+        function_map = {
+            "sellTarget": compute_sellTarget,
+            "sellTarget_high": compute_sellTarget_high,
+            "buyTarget": compute_buyTarget,
+            "buyTarget_low": compute_buyTarget_low,
+            "sellTarget_denoised": compute_sellTarget_denoised,
+            "sellTarget_denoised_high": compute_sellTarget_denoised_high,
+            "buyTarget_denoised": compute_buyTarget_denoised,
+            "buyTarget_denoised_low": compute_buyTarget_denoised_low
+        }
+    
+        return idx_range, function_map[function_name](df_copy, idx_range, next_pivot_high_price, table_name)
+    except Exception as e:
+        logging.error(f"Error in multi_process_function for function {function_name} and table {table_name}. Error: {e}")
+
+def process_pair(df, current_idx, next_pivot_idx, table_name):
+    next_pivot_high_price = df.loc[next_pivot_idx, 'F_close']
+    idx_range = df.index[df.index.isin(range(current_idx, next_pivot_idx + 1))]
+
+    task_columns = {
+    "sellTarget": ['F_close', 'sellTarget'],
+    "sellTarget_high": ['F_high', 'sellTarget_high'],
+    "sellTarget_denoised": ['F_low', 'sellTarget'],
+    "sellTarget_denoised_high": ['F_high', 'sellTarget_high'],
+    "buyTarget": ['F_close', 'buyTarget'],
+    "buyTarget_low": ['F_low', 'buyTarget_low'],
+    "buyTarget_denoised": ['F_close', 'buyTarget'],
+    "buyTarget_denoised_low": ['F_low', 'buyTarget_low']
+    }
+    
+    tasks = []
+    current_pivot = df.loc[current_idx, 'pivot']
+    if current_pivot == 1:
+        tasks.extend(["sellTarget", "sellTarget_high", "sellTarget_denoised", "sellTarget_denoised_high"])
+        df.at[current_idx, 'actualClass'] = 1
+    elif current_pivot == 2:
+        tasks.extend(["buyTarget", "buyTarget_low", "buyTarget_denoised", "buyTarget_denoised_low"])
+        df.at[current_idx, 'actualClass'] = 2
+
+    with Pool(processes=len(tasks)) as pool:
+        results = pool.map(multi_process_function, [(df[task_columns[task]].copy(), idx_range, next_pivot_high_price, task, table_name) for task in tasks])
+
+
+    # Merge the results back into the main dataframe
+    for r_idx_range, modified_df in results:
+        df.loc[r_idx_range] = modified_df.loc[r_idx_range]
 
     return df.loc[idx_range]
 
@@ -564,7 +665,7 @@ def process_and_target(df, table_name, db_queue):
 
     for start_idx, end_idx in pairs:
         try:
-            result_df = process_pair(df, start_idx, end_idx)
+            result_df = process_pair(df, start_idx, end_idx, table_name)
             df.update(result_df)           
         except Exception as e:
             logging.exception(f"Error processing pair {start_idx}, {end_idx}: {e}")
